@@ -3,7 +3,7 @@ name: CF Domain Daily Monitor
 on:
   schedule:
     # 北京时间8:00 = UTC 0:00
-    - cron: '0 0 * * *'
+    - cron: '0 0,12 * * *'
   workflow_dispatch:  # 允许手动触发测试
 
 jobs:
