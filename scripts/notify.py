@@ -19,7 +19,7 @@ def fetch_top_domains():
         data = response.json()
         
         if data.get("code") == 0:
-            return data.get("data", {}).get("good", [])[:10]
+            return data.get("data", {}).get("good", [])[:5]
         return None
     except Exception as e:
         print(f"❌ 获取数据失败: {e}")
