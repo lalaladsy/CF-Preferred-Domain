@@ -20,14 +20,13 @@ def fetch_data(url):
 
 def format_card(idx, item, is_domain=True):
     """
-    【修复版】
-    1. 强制为所有 IP/域名 加上 <code> 标签，解决跳转浏览器的问题
-    2. 移除节点间的横线，只靠换行分隔
+    1. 仅 IP/域名 使用 <code>，实现单独复制。
+    2. 延迟和三网数据使用普通文本。
+    3. 移除节点间的横线。
     """
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
     icon = medals[idx] if idx < 5 else "🔹"
-    # 获取 IP 或域名
-    addr = item.get("ip", "N/A")
+    addr = item.get("ip", "N/A").strip()
     
     if is_domain:
         avg_lat = int(item.get("avgLatency", 0))
@@ -39,10 +38,10 @@ def format_card(idx, item, is_domain=True):
         loss_val = item.get("dxPkgLostRateAvg") or item.get("ltPkgLostRateAvg") or item.get("ydPkgLostRateAvg") or 0
         loss = f"{loss_val:.1f}%"
 
-    # --- 核心排版：重点在 <code>{addr}</code> ---
+    # --- 关键：只有地址用 <code>，且前后换行防识别 ---
     card = f"{icon} <code>{addr}</code>\n"
-    card += f"⚡ <code>{avg_lat}ms</code> | 📊 丢包: <code>{loss}</code>\n"
-    card += f"📶 移动:<code>{yd}</code> | 联通:<code>{lt}</code> | 电信:<code>{dx}</code>\n\n" # 双换行区分排名
+    card += f"⚡ 平均: {avg_lat}ms | 📊 丢包: {loss}\n"
+    card += f"📶 移动:{yd} | 联通:{lt} | 电信:{dx}\n\n"
     return card
 
 def build_message(domain_data, ip_data):
@@ -58,7 +57,7 @@ def build_message(domain_data, ip_data):
             msg += format_card(i, item, is_domain=True)
     msg += f"━━━━━━━━━━━━━━━━━━\n"
 
-    # 2-5. IP 组 (综合、电信、联通、移动)
+    # 2-5. IP 组
     if ip_data and ip_data.get("code") == 0:
         raw = ip_data.get("data", {})
         sections = [
@@ -72,7 +71,7 @@ def build_message(domain_data, ip_data):
             for i, item in enumerate(raw.get(key, [])[:5]):
                 msg += format_card(i, item, is_domain=False)
             
-            # 只有中间的大项才加这道粗横线
+            # 大组之间才加粗横线
             if idx < len(sections) - 1:
                 msg += f"━━━━━━━━━━━━━━━━━━\n"
     
@@ -81,7 +80,6 @@ def build_message(domain_data, ip_data):
 
 def smart_push(text):
     try:
-        # 尝试原地编辑置顶消息
         chat_info = requests.get(f"{TELEGRAM_API}/getChat", params={"chat_id": TELEGRAM_CHAT_ID}).json()
         pin_id = chat_info["result"].get("pinned_message", {}).get("message_id") if chat_info.get("ok") else None
         
@@ -89,7 +87,7 @@ def smart_push(text):
             "chat_id": TELEGRAM_CHAT_ID, 
             "text": text, 
             "parse_mode": "HTML", 
-            "disable_web_page_preview": True # 彻底禁止网址预览预览
+            "disable_web_page_preview": True 
         }
         
         if pin_id:
@@ -100,7 +98,8 @@ def smart_push(text):
             if res.get("ok"):
                 requests.post(f"{TELEGRAM_API}/pinChatMessage", json={
                     "chat_id": TELEGRAM_CHAT_ID, 
-                    "message_id": res["result"]["message_id"]
+                    "message_id": res["result"]["message_id"],
+                    "disable_notification": True
                 })
     except: pass
 
