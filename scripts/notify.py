@@ -20,13 +20,14 @@ def fetch_data(url):
 
 def format_card(idx, item, is_domain=True):
     """
-    高密度排版：
-    1. 给 IP 加上 <code> 解决跳转浏览器问题并实现一键复制
-    2. 取消小项间的横线
+    【修复版】
+    1. 强制为所有 IP/域名 加上 <code> 标签，解决跳转浏览器的问题
+    2. 移除节点间的横线，只靠换行分隔
     """
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
     icon = medals[idx] if idx < 5 else "🔹"
-    ip = item.get("ip", "N/A")
+    # 获取 IP 或域名
+    addr = item.get("ip", "N/A")
     
     if is_domain:
         avg_lat = int(item.get("avgLatency", 0))
@@ -38,26 +39,26 @@ def format_card(idx, item, is_domain=True):
         loss_val = item.get("dxPkgLostRateAvg") or item.get("ltPkgLostRateAvg") or item.get("ydPkgLostRateAvg") or 0
         loss = f"{loss_val:.1f}%"
 
-    # 这里的 <code>{ip}</code> 是解决你提到的“跳转浏览器”问题的核心
-    card = f"{icon} <code>{ip}</code>\n"
+    # --- 核心排版：重点在 <code>{addr}</code> ---
+    card = f"{icon} <code>{addr}</code>\n"
     card += f"⚡ <code>{avg_lat}ms</code> | 📊 丢包: <code>{loss}</code>\n"
-    card += f"📶 移动:<code>{yd}</code> | 联通:<code>{lt}</code> | 电信:<code>{dx}</code>\n\n" # 末尾加两个换行区分小项
+    card += f"📶 移动:<code>{yd}</code> | 联通:<code>{lt}</code> | 电信:<code>{dx}</code>\n\n" # 双换行区分排名
     return card
 
 def build_message(domain_data, ip_data):
     bj_now = (datetime.utcnow() + timedelta(hours=8)).strftime('%m-%d %H:%M')
     
     msg = f"🚀 <b>CF 优选监控看板</b> | 🕒 <code>{bj_now}</code>\n"
-    msg += f"━━━━━━━━━━━━━━━━━━\n" # 大项开始横线
+    msg += f"━━━━━━━━━━━━━━━━━━\n"
 
-    # 1. 域名
+    # 1. 域名组
     msg += "🌐 <b>1. 优选域名 TOP 5</b>\n"
     if domain_data and domain_data.get("code") == 0:
         for i, item in enumerate(domain_data.get("data", {}).get("good", [])[:5]):
             msg += format_card(i, item, is_domain=True)
-    msg += f"━━━━━━━━━━━━━━━━━━\n" # 大项间横线
+    msg += f"━━━━━━━━━━━━━━━━━━\n"
 
-    # 2-5. IP 组
+    # 2-5. IP 组 (综合、电信、联通、移动)
     if ip_data and ip_data.get("code") == 0:
         raw = ip_data.get("data", {})
         sections = [
@@ -71,7 +72,7 @@ def build_message(domain_data, ip_data):
             for i, item in enumerate(raw.get(key, [])[:5]):
                 msg += format_card(i, item, is_domain=False)
             
-            # 只有不是最后一项时才加横线
+            # 只有中间的大项才加这道粗横线
             if idx < len(sections) - 1:
                 msg += f"━━━━━━━━━━━━━━━━━━\n"
     
@@ -80,19 +81,30 @@ def build_message(domain_data, ip_data):
 
 def smart_push(text):
     try:
+        # 尝试原地编辑置顶消息
         chat_info = requests.get(f"{TELEGRAM_API}/getChat", params={"chat_id": TELEGRAM_CHAT_ID}).json()
         pin_id = chat_info["result"].get("pinned_message", {}).get("message_id") if chat_info.get("ok") else None
         
-        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": text, "parse_mode": "HTML", "disable_web_page_preview": True}
+        payload = {
+            "chat_id": TELEGRAM_CHAT_ID, 
+            "text": text, 
+            "parse_mode": "HTML", 
+            "disable_web_page_preview": True # 彻底禁止网址预览预览
+        }
+        
         if pin_id:
             payload["message_id"] = pin_id
             requests.post(f"{TELEGRAM_API}/editMessageText", json=payload)
         else:
             res = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload).json()
             if res.get("ok"):
-                requests.post(f"{TELEGRAM_API}/pinChatMessage", json={"chat_id": TELEGRAM_CHAT_ID, "message_id": res["result"]["message_id"]})
+                requests.post(f"{TELEGRAM_API}/pinChatMessage", json={
+                    "chat_id": TELEGRAM_CHAT_ID, 
+                    "message_id": res["result"]["message_id"]
+                })
     except: pass
 
 if __name__ == "__main__":
     d, i = fetch_data(API_URL_DOMAINS), fetch_data(API_URL_IPS)
-    smart_push(build_message(d, i))
+    if d or i:
+        smart_push(build_message(d, i))
