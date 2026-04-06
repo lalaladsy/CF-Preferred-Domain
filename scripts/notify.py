@@ -20,13 +20,14 @@ def fetch_data(url):
 
 def format_card(idx, item, is_domain=True):
     """
-    高密度排版：保留全称和点击复制，行数减半
+    高密度排版：
+    1. 给 IP 加上 <code> 解决跳转浏览器问题并实现一键复制
+    2. 取消小项间的横线
     """
     medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣"]
     icon = medals[idx] if idx < 5 else "🔹"
     ip = item.get("ip", "N/A")
     
-    # 数据提取
     if is_domain:
         avg_lat = int(item.get("avgLatency", 0))
         loss = f"{item.get('avgPkgLostRate', 0):.1%}" 
@@ -37,43 +38,48 @@ def format_card(idx, item, is_domain=True):
         loss_val = item.get("dxPkgLostRateAvg") or item.get("ltPkgLostRateAvg") or item.get("ydPkgLostRateAvg") or 0
         loss = f"{loss_val:.1f}%"
 
-    # --- 紧凑型详细排版 ---
-    # 第一行：奖牌 + IP (点一下复制)
+    # 这里的 <code>{ip}</code> 是解决你提到的“跳转浏览器”问题的核心
     card = f"{icon} <code>{ip}</code>\n"
-    # 第二行：延迟 + 丢包
     card += f"⚡ <code>{avg_lat}ms</code> | 📊 丢包: <code>{loss}</code>\n"
-    # 第三行：三网全称 (横向合并)
-    card += f"📶 <b>移动:</b><code>{yd}</code> | <b>联通:</b><code>{lt}</code> | <b>电信:</b><code>{dx}</code>\n"
-    card += f"┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈\n"
+    card += f"📶 移动:<code>{yd}</code> | 联通:<code>{lt}</code> | 电信:<code>{dx}</code>\n\n" # 末尾加两个换行区分小项
     return card
 
 def build_message(domain_data, ip_data):
     bj_now = (datetime.utcnow() + timedelta(hours=8)).strftime('%m-%d %H:%M')
     
     msg = f"🚀 <b>CF 优选监控看板</b> | 🕒 <code>{bj_now}</code>\n"
-    msg += f"━━━━━━━━━━━━━━━━━━\n"
+    msg += f"━━━━━━━━━━━━━━━━━━\n" # 大项开始横线
 
     # 1. 域名
     msg += "🌐 <b>1. 优选域名 TOP 5</b>\n"
     if domain_data and domain_data.get("code") == 0:
         for i, item in enumerate(domain_data.get("data", {}).get("good", [])[:5]):
             msg += format_card(i, item, is_domain=True)
+    msg += f"━━━━━━━━━━━━━━━━━━\n" # 大项间横线
 
     # 2-5. IP 组
     if ip_data and ip_data.get("code") == 0:
         raw = ip_data.get("data", {})
-        sections = [("AllAvg", "🏆 2. 综合优选"), ("CT", "🔵 3. 电信专项"), ("CU", "🟢 4. 联通专项"), ("CM", "🟡 5. 移动专项")]
-        for key, title in sections:
-            msg += f"\n{title}\n"
+        sections = [
+            ("AllAvg", "🏆 2. 综合优选"),
+            ("CT", "🔵 3. 电信专项"),
+            ("CU", "🟢 4. 联通专项"),
+            ("CM", "🟡 5. 移动专项")
+        ]
+        for idx, (key, title) in enumerate(sections):
+            msg += f"{title}\n"
             for i, item in enumerate(raw.get(key, [])[:5]):
                 msg += format_card(i, item, is_domain=False)
+            
+            # 只有不是最后一项时才加横线
+            if idx < len(sections) - 1:
+                msg += f"━━━━━━━━━━━━━━━━━━\n"
     
     msg += f"🤖 数据源: vps789.com"
     return msg
 
 def smart_push(text):
     try:
-        # 编辑置顶逻辑保持不变
         chat_info = requests.get(f"{TELEGRAM_API}/getChat", params={"chat_id": TELEGRAM_CHAT_ID}).json()
         pin_id = chat_info["result"].get("pinned_message", {}).get("message_id") if chat_info.get("ok") else None
         
