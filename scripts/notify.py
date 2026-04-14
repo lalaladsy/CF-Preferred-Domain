@@ -27,14 +27,26 @@ def format_card(idx, item, is_domain=True):
     addr = item.get("ip", "N/A").strip()
     
     if is_domain:
+        # --- 域名组数据 ---
         avg_lat = int(item.get("avgLatency", 0))
-        loss = f"{item.get('avgPkgLostRate', 0):.1%}" 
+        # 修正：接口返回 1.17 代表 1.17%，所以需要除以 100
+        loss_val = item.get("avgPkgLostRate", 0) / 100
+        loss = f"{loss_val:.1%}" 
         yd, lt, dx = int(item.get("ydLatency", 0)), int(item.get("ltLatency", 0)), int(item.get("dxLatency", 0))
     else:
+        # --- IP 组数据 ---
         yd, lt, dx = int(item.get("ydLatencyAvg", 0)), int(item.get("ltLatencyAvg", 0)), int(item.get("dxLatencyAvg", 0))
-        avg_lat = int((yd + lt + dx) / 3) # 修正后的真实平均值
-        loss_val = item.get("dxPkgLostRateAvg") or item.get("ltPkgLostRateAvg") or item.get("ydPkgLostRateAvg") or 0
-        loss = f"{loss_val:.1f}%"
+        
+        # 修正：计算平均延迟（排除 0，防止拉低均值）
+        lats = [v for v in [yd, lt, dx] if v > 0]
+        avg_lat = int(sum(lats) / len(lats)) if lats else 0
+        
+        # 修正：计算三网平均丢包率
+        dx_l = item.get("dxPkgLostRateAvg", 0)
+        lt_l = item.get("ltPkgLostRateAvg", 0)
+        yd_l = item.get("ydPkgLostRateAvg", 0)
+        loss_avg = (dx_l + lt_l + yd_l) / 3 / 100
+        loss = f"{loss_avg:.1%}"
 
     card = f"{icon} <code>{addr}</code>\n"
     card += f"⚡ 平均: {avg_lat}ms | 📊 丢包: {loss}\n"
@@ -69,12 +81,10 @@ def build_message(domain_data, ip_data):
     return msg
 
 def smart_push(text):
-    # 将逗号分隔的字符串转换为列表并去除空格
     chat_id_list = [id.strip() for id in TELEGRAM_CHAT_IDS.split(",") if id.strip()]
     
     for chat_id in chat_id_list:
         try:
-            # 尝试获取该聊天的置顶消息
             chat_info = requests.get(f"{TELEGRAM_API}/getChat", params={"chat_id": chat_id}).json()
             pin_id = chat_info.get("result", {}).get("pinned_message", {}).get("message_id")
             
@@ -86,16 +96,13 @@ def smart_push(text):
             }
             
             if pin_id:
-                # 针对每个聊天 ID 编辑各自的置顶消息
                 payload["message_id"] = pin_id
                 res = requests.post(f"{TELEGRAM_API}/editMessageText", json=payload).json()
-                # 如果编辑失败（比如置顶被取消了），就发新消息
                 if not res.get("ok"):
                     send_res = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload).json()
                     if send_res.get("ok"):
                         requests.post(f"{TELEGRAM_API}/pinChatMessage", json={"chat_id": chat_id, "message_id": send_res["result"]["message_id"], "disable_notification": True})
             else:
-                # 没有置顶则发送新消息并置顶
                 res = requests.post(f"{TELEGRAM_API}/sendMessage", json=payload).json()
                 if res.get("ok"):
                     requests.post(f"{TELEGRAM_API}/pinChatMessage", json={"chat_id": chat_id, "message_id": res["result"]["message_id"], "disable_notification": True})
